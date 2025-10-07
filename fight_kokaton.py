@@ -43,13 +43,13 @@ class Bird:
     img = pg.transform.flip(img0, True, False)
     imgs = {
         (+5, 0): img,
-        (+5, -5): pg.transform.rotozoom(img, 45, 0.9),
-        (0, -5): pg.transform.rotozoom(img, 90, 0.9),
-        (-5, -5): pg.transform.rotozoom(img0, -45, 0.9),
+        (+5, -5): pg.transform.rotozoom(img, 45, 0.9),#migi
+        (0, -5): pg.transform.rotozoom(img, 90, 0.9),#hidari
+        (-5, -5): pg.transform.rotozoom(img0, -45, 0.9),#ue
         (-5, 0): img0,
-        (-5, +5): pg.transform.rotozoom(img0, 45, 0.9),
-        (0, +5): pg.transform.rotozoom(img, -90, 0.9),
-        (+5, +5): pg.transform.rotozoom(img, -45, 0.9),
+        (-5, +5): pg.transform.rotozoom(img0, 45, 0.9),#naname
+        (0, +5): pg.transform.rotozoom(img, -90, 0.9),#namae
+        (+5, +5): pg.transform.rotozoom(img, -45, 0.9),#sita
     }
     def __init__(self, xy: tuple[int, int]):
         self.img = __class__.imgs[(+5, 0)]
