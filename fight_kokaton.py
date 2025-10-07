@@ -6,7 +6,7 @@ import pygame as pg
 
 WIDTH = 1100
 HEIGHT = 650
-NUM_OF_BOMBS = 5   # ★ 爆弾の数
+NUM_OF_BOMBS = 5   # 複数爆弾
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 def check_bound(obj_rct: pg.Rect) -> tuple[bool, bool]:
@@ -24,8 +24,7 @@ class Score:
         self.value = 0
         self._render()
     def _render(self):
-        txt = f"スコア：{self.value}"
-        self.img = self.font.render(txt, True, self.color)
+        self.img = self.font.render(f"スコア：{self.value}", True, self.color)
         self.rct = self.img.get_rect()
         self.rct.center = (100, HEIGHT - 50)
     def add(self, n: int = 1):
@@ -36,10 +35,8 @@ class Score:
 
 class Bird:
     delta = {
-        pg.K_UP: (0, -5),
-        pg.K_DOWN: (0, +5),
-        pg.K_LEFT: (-5, 0),
-        pg.K_RIGHT: (+5, 0),
+        pg.K_UP: (0, -5), pg.K_DOWN: (0, +5),
+        pg.K_LEFT: (-5, 0), pg.K_RIGHT: (+5, 0),
     }
     img0 = pg.transform.rotozoom(pg.image.load("fig/3.png"), 0, 0.9)
     img = pg.transform.flip(img0, True, False)
@@ -64,26 +61,29 @@ class Bird:
         sum_mv = [0, 0]
         for k, mv in __class__.delta.items():
             if key_lst[k]:
-                sum_mv[0] += mv[0]
-                sum_mv[1] += mv[1]
+                sum_mv[0] += mv[0]; sum_mv[1] += mv[1]
         self.rct.move_ip(sum_mv)
         if check_bound(self.rct) != (True, True):
             self.rct.move_ip(-sum_mv[0], -sum_mv[1])
-        if not (sum_mv[0] == 0 and sum_mv[1] == 0):
+        if sum_mv != [0, 0]:
             self.img = __class__.imgs[tuple(sum_mv)]
         screen.blit(self.img, self.rct)
 
 class Beam:
+    """複数発対応：updateは生存(True)/消滅(False)を返す"""
     def __init__(self, bird:"Bird"):
-        self.img = pg.image.load(f"fig/beam.png")
+        self.img = pg.image.load("fig/beam.png")
         self.rct = self.img.get_rect()
         self.rct.centery = bird.rct.centery
         self.rct.left = bird.rct.right
         self.vx, self.vy = +5, 0
-    def update(self, screen: pg.Surface):
-        if check_bound(self.rct) == (True, True):
-            self.rct.move_ip(self.vx, self.vy)
+    def update(self, screen: pg.Surface) -> bool:
+        # 進めて描画、画面外に出たらFalse
+        self.rct.move_ip(self.vx, self.vy)
+        alive = check_bound(self.rct) == (True, True)
+        if alive:
             screen.blit(self.img, self.rct)
+        return alive
 
 class Bomb:
     def __init__(self, color: tuple[int, int, int], rad: int):
@@ -100,6 +100,25 @@ class Bomb:
         self.rct.move_ip(self.vx, self.vy)
         screen.blit(self.img, self.rct)
 
+class Explosion:
+    """爆発エフェクト（lifeで寿命管理。画像を交互に切替えてチラつきを抑える）"""
+    def __init__(self, center: tuple[int, int]):
+        base = pg.image.load("fig/explosion.gif")  # ex3/fig に配置
+        self.imgs = [
+            base,
+            pg.transform.flip(base, True, False),
+            pg.transform.flip(base, False, True),
+            pg.transform.flip(base, True, True),
+        ]
+        self.rct = self.imgs[0].get_rect()
+        self.rct.center = center   # 爆発した爆弾のrct.centerに座標を設定
+        self.life = 20             # 表示時間（爆発時間）
+    def update(self, screen: pg.Surface):
+        # lifeが正ならSurfaceリストを交互に切り替えて爆発を演出
+        img = self.imgs[(self.life // 2) % len(self.imgs)]
+        screen.blit(img, self.rct)
+        self.life -= 1
+
 def spawn_bomb() -> Bomb:
     color = random.choice([(255,0,0), (255,165,0), (255,105,180)])
     rad = random.choice([8, 10, 12])
@@ -107,23 +126,26 @@ def spawn_bomb() -> Bomb:
 
 def main():
     pg.display.set_caption("たたかえ！こうかとん")
-    screen = pg.display.set_mode((WIDTH, HEIGHT))    
+    screen = pg.display.set_mode((WIDTH, HEIGHT))
     bg_img = pg.image.load("fig/pg_bg.jpg")
+
     bird = Bird((300, 200))
-    bombs = [spawn_bomb() for _ in range(NUM_OF_BOMBS)]  # ★ 複数爆弾
-    beam = None
+    bombs = [spawn_bomb() for _ in range(NUM_OF_BOMBS)]  # 複数爆弾
+    beams: list[Beam] = []                                # ★ 複数ビーム
+    explosions: list[Explosion] = []                      # ★ 爆発エフェクトのリスト
     score = Score()
 
     clock = pg.time.Clock()
     while True:
         for event in pg.event.get():
-            if event.type == pg.QUIT: return
+            if event.type == pg.QUIT:
+                return
             if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
-                beam = Beam(bird)
+                beams.append(Beam(bird))                  # ★ 発射して追加
 
         screen.blit(bg_img, [0, 0])
 
-        # こうかとん vs 爆弾
+        # こうかとん vs 爆弾（当たったらゲームオーバー）
         for bomb in bombs:
             if bird.rct.colliderect(bomb.rct):
                 bird.change_img(8, screen)
@@ -131,27 +153,43 @@ def main():
                 time.sleep(1)
                 return
 
-        # ビーム vs 爆弾
-        if beam is not None:
-            for i, bomb in enumerate(bombs):
+        # ビーム vs 爆弾（当たったペアをNoneに）＋ 爆発生成を追加
+        for bi, bomb in enumerate(bombs):
+            if bomb is None:
+                continue
+            for i, beam in enumerate(beams):
+                if beam is None:
+                    continue
                 if beam.rct.colliderect(bomb.rct):
-                    score.add(1)
-                    bombs[i] = None
-                    beam = None
-                    break
+                    score.add(1)        # 1点加算
+                    explosions.append(Explosion(bomb.rct.center))  # ★ 爆発を追加
+                    bombs[bi] = None    # 爆弾消去
+                    beams[i]  = None    # ビーム消去
+                    break               # 1弾に複数ヒットしない想定
 
-        # 爆弾リスト更新
-        bombs = [bomb for bomb in bombs if bomb is not None]
+        # リストからNoneを除去（スライドの指示）
+        bombs = [b for b in bombs if b is not None]
+        beams = [b for b in beams if b is not None]
+        explosions = [ex for ex in explosions if ex.life > 0]  # ★ lifeが0より大きいものだけ残す
 
-        # 更新処理
+        # 更新・描画
         key_lst = pg.key.get_pressed()
         bird.update(key_lst, screen)
-        if beam is not None:
-            beam.update(screen)
+
+        # 画面外に出たビームは update が False を返すので捨てる
+        alive_beams = []
+        for beam in beams:
+            if beam.update(screen):
+                alive_beams.append(beam)
+        beams = alive_beams
+
         for bomb in bombs:
             bomb.update(screen)
-        score.update(screen)
 
+        for ex in explosions:            # ★ 爆発を描画
+            ex.update(screen)
+
+        score.update(screen)
         pg.display.update()
         clock.tick(50)
 
